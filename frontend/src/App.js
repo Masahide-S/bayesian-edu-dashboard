@@ -14,6 +14,12 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Conditional Probability State
+  const [givenQuestion, setGivenQuestion] = useState('1');
+  const [targetQuestion, setTargetQuestion] = useState('2');
+  const [conditionalProb, setConditionalProb] = useState(null);
+  const [condProbLoading, setCondProbLoading] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -25,13 +31,27 @@ function App() {
         axios.get(`${API_BASE_URL}/grades`),
         axios.get(`${API_BASE_URL}/statistics`)
       ]);
-      
+
       setGrades(gradesRes.data);
       setStatistics(statsRes.data);
       setLoading(false);
     } catch (err) {
       setError(err.message);
       setLoading(false);
+    }
+  };
+
+  const fetchConditionalProbability = async () => {
+    try {
+      setCondProbLoading(true);
+      const response = await axios.get(
+        `${API_BASE_URL}/conditional-probability?given=${givenQuestion}&target=${targetQuestion}`
+      );
+      setConditionalProb(response.data);
+      setCondProbLoading(false);
+    } catch (err) {
+      console.error('Error fetching conditional probability:', err);
+      setCondProbLoading(false);
     }
   };
 
@@ -143,6 +163,86 @@ function App() {
           <div className="analysis-note">
             <p>💡 <strong>分析:</strong> 正答率が高い問題ほど易しく、低い問題ほど難しいと判断できます</p>
           </div>
+        </section>
+
+        {/* Conditional Probability Calculator */}
+        <section className="card">
+          <h2>条件付き確率計算</h2>
+          <p className="section-description">
+            P(Q<sub>target</sub>=1 | Q<sub>given</sub>=1) を計算します。
+            「Q<sub>given</sub>を正解した学生の中で、Q<sub>target</sub>も正解した確率」を表します。
+          </p>
+
+          <div className="conditional-prob-controls">
+            <div className="control-group">
+              <label htmlFor="given-question">
+                条件となる問題 (Given):
+              </label>
+              <select
+                id="given-question"
+                value={givenQuestion}
+                onChange={(e) => setGivenQuestion(e.target.value)}
+                className="question-select"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(q => (
+                  <option key={q} value={q}>Q{q}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="control-group">
+              <label htmlFor="target-question">
+                対象の問題 (Target):
+              </label>
+              <select
+                id="target-question"
+                value={targetQuestion}
+                onChange={(e) => setTargetQuestion(e.target.value)}
+                className="question-select"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(q => (
+                  <option key={q} value={q}>Q{q}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={fetchConditionalProbability}
+              disabled={condProbLoading}
+              className="calculate-button"
+            >
+              {condProbLoading ? '計算中...' : '計算する'}
+            </button>
+          </div>
+
+          {conditionalProb && (
+            <div className="conditional-prob-result">
+              <h3>計算結果</h3>
+              <div className="result-grid">
+                <div className="result-item">
+                  <span className="result-label">条件付き確率</span>
+                  <span className="result-value probability">
+                    {(conditionalProb.probability * 100).toFixed(2)}%
+                  </span>
+                </div>
+                <div className="result-item">
+                  <span className="result-label">Q{conditionalProb.given_question}正解者数</span>
+                  <span className="result-value">{conditionalProb.given_correct_count}人</span>
+                </div>
+                <div className="result-item">
+                  <span className="result-label">両方正解者数</span>
+                  <span className="result-value">{conditionalProb.both_correct_count}人</span>
+                </div>
+              </div>
+              <div className="analysis-note">
+                <p>
+                  📊 <strong>解釈:</strong> Q{conditionalProb.given_question}を正解した学生{conditionalProb.given_correct_count}人のうち、
+                  {conditionalProb.both_correct_count}人がQ{conditionalProb.target_question}も正解しています
+                  （{(conditionalProb.probability * 100).toFixed(2)}%）
+                </p>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Student Performance Table */}

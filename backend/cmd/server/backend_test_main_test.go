@@ -34,7 +34,7 @@ func TestHealthCheck(t *testing.T) {
 	}
 
 	// レスポンスボディの確認
-	expected := `{"status":"healthy"}`
+	expected := `{"status":"healthy"}` + "\n"
 	if rr.Body.String() != expected {
 		t.Errorf("handler returned unexpected body: got %v want %v",
 			rr.Body.String(), expected)
@@ -194,6 +194,219 @@ func BenchmarkGetStatistics(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		rr := httptest.NewRecorder()
 		handler := http.HandlerFunc(getStatistics)
+		handler.ServeHTTP(rr, req)
+	}
+}
+
+// TestConditionalProbability - 条件付き確率計算の正常系テスト
+func TestConditionalProbability(t *testing.T) {
+	setupTestData()
+	// setupTestDataの内容:
+	// Student 1: Q1=1, Q2=1 (両方正解)
+	// Student 2: Q1=1, Q2=1 (両方正解)
+	// Student 3: Q1=0, Q2=0 (両方不正解)
+	// P(Q2=1 | Q1=1) = (Q1=1かつQ2=1の学生数) / (Q1=1の学生数) = 2/2 = 1.0
+
+	req, err := http.NewRequest("GET", "/api/conditional-probability?given=1&target=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getConditionalProbability)
+	handler.ServeHTTP(rr, req)
+
+	// ステータスコードの確認
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+
+	// JSONのデコード
+	var result map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Errorf("failed to decode response body: %v", err)
+	}
+
+	// 確率値の確認
+	probability, ok := result["probability"].(float64)
+	if !ok {
+		t.Errorf("probability field is missing or not a float64")
+	}
+
+	expectedProbability := 1.0
+	if probability != expectedProbability {
+		t.Errorf("expected probability %.2f, got %.2f", expectedProbability, probability)
+	}
+
+	// given_question と target_question の確認
+	if result["given_question"] != float64(1) {
+		t.Errorf("expected given_question 1, got %v", result["given_question"])
+	}
+	if result["target_question"] != float64(2) {
+		t.Errorf("expected target_question 2, got %v", result["target_question"])
+	}
+}
+
+// TestConditionalProbabilityWithDifferentQuestions - 異なる問題での条件付き確率テスト
+func TestConditionalProbabilityWithDifferentQuestions(t *testing.T) {
+	// テストデータをより複雑なパターンに設定
+	grades = []Grade{
+		{StudentID: 1, Q1: 1, Q2: 1, Q3: 1, Q4: 1, Q5: 1, Q6: 1, Q7: 1, Q8: 1, Q9: 1, Q10: 1, Total: 10},
+		{StudentID: 2, Q1: 1, Q2: 1, Q3: 0, Q4: 1, Q5: 1, Q6: 1, Q7: 1, Q8: 1, Q9: 0, Q10: 0, Total: 7},
+		{StudentID: 3, Q1: 1, Q2: 0, Q3: 0, Q4: 0, Q5: 0, Q6: 0, Q7: 0, Q8: 0, Q9: 0, Q10: 0, Total: 1},
+		{StudentID: 4, Q1: 0, Q2: 0, Q3: 0, Q4: 0, Q5: 0, Q6: 0, Q7: 0, Q8: 0, Q9: 0, Q10: 0, Total: 0},
+	}
+	// P(Q2=1 | Q1=1) = (Q1=1かつQ2=1の学生数) / (Q1=1の学生数) = 2/3 = 0.6666...
+
+	req, err := http.NewRequest("GET", "/api/conditional-probability?given=1&target=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getConditionalProbability)
+	handler.ServeHTTP(rr, req)
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Errorf("failed to decode response body: %v", err)
+	}
+
+	probability := result["probability"].(float64)
+	expectedProbability := 2.0 / 3.0
+
+	if probability < expectedProbability-0.01 || probability > expectedProbability+0.01 {
+		t.Errorf("expected probability %.4f, got %.4f", expectedProbability, probability)
+	}
+}
+
+// TestConditionalProbabilityMissingGiven - givenパラメータが欠落している場合のテスト
+func TestConditionalProbabilityMissingGiven(t *testing.T) {
+	setupTestData()
+
+	req, err := http.NewRequest("GET", "/api/conditional-probability?target=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getConditionalProbability)
+	handler.ServeHTTP(rr, req)
+
+	// エラーステータスコードの確認
+	if status := rr.Code; status != http.StatusBadRequest {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusBadRequest)
+	}
+}
+
+// TestConditionalProbabilityMissingTarget - targetパラメータが欠落している場合のテスト
+func TestConditionalProbabilityMissingTarget(t *testing.T) {
+	setupTestData()
+
+	req, err := http.NewRequest("GET", "/api/conditional-probability?given=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getConditionalProbability)
+	handler.ServeHTTP(rr, req)
+
+	// エラーステータスコードの確認
+	if status := rr.Code; status != http.StatusBadRequest {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusBadRequest)
+	}
+}
+
+// TestConditionalProbabilityInvalidQuestionNumber - 無効な問題番号のテスト
+func TestConditionalProbabilityInvalidQuestionNumber(t *testing.T) {
+	setupTestData()
+
+	testCases := []struct {
+		name   string
+		given  string
+		target string
+	}{
+		{"given=0", "0", "2"},
+		{"given=11", "11", "2"},
+		{"target=0", "1", "0"},
+		{"target=11", "1", "11"},
+		{"both invalid", "0", "11"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest("GET", "/api/conditional-probability?given="+tc.given+"&target="+tc.target, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rr := httptest.NewRecorder()
+			handler := http.HandlerFunc(getConditionalProbability)
+			handler.ServeHTTP(rr, req)
+
+			// エラーステータスコードの確認
+			if status := rr.Code; status != http.StatusBadRequest {
+				t.Errorf("handler returned wrong status code: got %v want %v",
+					status, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
+// TestConditionalProbabilityZeroDivision - Q_givenの正解者が0人の場合のテスト
+func TestConditionalProbabilityZeroDivision(t *testing.T) {
+	// Q1=0の学生しかいないデータ
+	grades = []Grade{
+		{StudentID: 1, Q1: 0, Q2: 1, Q3: 1, Q4: 1, Q5: 1, Q6: 1, Q7: 1, Q8: 1, Q9: 1, Q10: 1, Total: 9},
+		{StudentID: 2, Q1: 0, Q2: 1, Q3: 1, Q4: 1, Q5: 1, Q6: 1, Q7: 1, Q8: 0, Q9: 0, Q10: 0, Total: 6},
+		{StudentID: 3, Q1: 0, Q2: 0, Q3: 0, Q4: 0, Q5: 0, Q6: 0, Q7: 0, Q8: 0, Q9: 0, Q10: 0, Total: 0},
+	}
+
+	req, err := http.NewRequest("GET", "/api/conditional-probability?given=1&target=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getConditionalProbability)
+	handler.ServeHTTP(rr, req)
+
+	// ゼロ除算の場合は0.0を返すか、エラーを返す（実装による）
+	// ここでは0.0を返すことを期待
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Errorf("failed to decode response body: %v", err)
+	}
+
+	probability := result["probability"].(float64)
+	if probability != 0.0 {
+		t.Errorf("expected probability 0.0 for zero division, got %.2f", probability)
+	}
+}
+
+// BenchmarkConditionalProbability - 条件付き確率計算のベンチマークテスト
+func BenchmarkConditionalProbability(b *testing.B) {
+	setupTestData()
+	req, _ := http.NewRequest("GET", "/api/conditional-probability?given=1&target=2", nil)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(getConditionalProbability)
 		handler.ServeHTTP(rr, req)
 	}
 }

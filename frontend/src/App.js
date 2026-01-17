@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
 import './App.css';
 
@@ -188,20 +188,6 @@ function App() {
                   ))}
               </tbody>
             </table>
-          </div>
-        </section>
-
-        {/* Bayesian Analysis Section (Placeholder) */}
-        <section className="card">
-          <h2>🎯 ベイズ分析（今後実装予定）</h2>
-          <div className="placeholder-content">
-            <p>以下の機能を実装予定:</p>
-            <ul>
-              <li>MCMCによる平均点の事後分布推定</li>
-              <li>学生の能力パラメータθの推定</li>
-              <li>問題間の条件付き確率分析</li>
-              <li>予測モデルによる次回テスト結果予測</li>
-            </ul>
           </div>
         </section>
       </main>

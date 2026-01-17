@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -567,6 +568,221 @@ func BenchmarkCorrelationMatrix(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		rr := httptest.NewRecorder()
 		handler := http.HandlerFunc(getCorrelationMatrix)
+		handler.ServeHTTP(rr, req)
+	}
+}
+
+// TestBayesTheorem - ベイズの定理の正常系テスト
+func TestBayesTheorem(t *testing.T) {
+	setupTestData()
+	// setupTestData: Student1(Total=10), Student2(Total=7), Student3(Total=0)
+	// P(Total≥8 | Q1=1) を計算
+	// Student1: Total=10, Q1=1 → 条件を満たす
+	// Student2: Total=7, Q1=1 → Total≥8を満たさない
+	// Student3: Total=0, Q1=0 → Q1=1を満たさない
+	// P(Total≥8 | Q1=1) = 1/2 = 0.5
+
+	req, err := http.NewRequest("GET", "/api/bayes?condition=q1&value=1&threshold=8", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getBayesTheorem)
+	handler.ServeHTTP(rr, req)
+
+	// ステータスコードの確認
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+
+	// JSONのデコード
+	var result map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Errorf("failed to decode response body: %v", err)
+	}
+
+	// 事後確率の確認
+	posteriorProb, ok := result["posterior_probability"].(float64)
+	if !ok {
+		t.Fatal("posterior_probability field is missing or not a float64")
+	}
+
+	expectedProb := 0.5
+	if posteriorProb < expectedProb-0.01 || posteriorProb > expectedProb+0.01 {
+		t.Errorf("expected posterior probability %.2f, got %.2f", expectedProb, posteriorProb)
+	}
+}
+
+// TestBayesTheoremMissingCondition - conditionパラメータが欠落している場合のテスト
+func TestBayesTheoremMissingCondition(t *testing.T) {
+	setupTestData()
+
+	req, err := http.NewRequest("GET", "/api/bayes?value=1&threshold=8", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getBayesTheorem)
+	handler.ServeHTTP(rr, req)
+
+	// エラーステータスコードの確認
+	if status := rr.Code; status != http.StatusBadRequest {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusBadRequest)
+	}
+}
+
+// TestBayesTheoremMissingValue - valueパラメータが欠落している場合のテスト
+func TestBayesTheoremMissingValue(t *testing.T) {
+	setupTestData()
+
+	req, err := http.NewRequest("GET", "/api/bayes?condition=q1&threshold=8", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getBayesTheorem)
+	handler.ServeHTTP(rr, req)
+
+	// エラーステータスコードの確認
+	if status := rr.Code; status != http.StatusBadRequest {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusBadRequest)
+	}
+}
+
+// TestBayesTheoremMissingThreshold - thresholdパラメータが欠落している場合のテスト
+func TestBayesTheoremMissingThreshold(t *testing.T) {
+	setupTestData()
+
+	req, err := http.NewRequest("GET", "/api/bayes?condition=q1&value=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getBayesTheorem)
+	handler.ServeHTTP(rr, req)
+
+	// エラーステータスコードの確認
+	if status := rr.Code; status != http.StatusBadRequest {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusBadRequest)
+	}
+}
+
+// TestBayesTheoremInvalidCondition - 無効な条件のテスト
+func TestBayesTheoremInvalidCondition(t *testing.T) {
+	setupTestData()
+
+	testCases := []struct {
+		name      string
+		condition string
+	}{
+		{"invalid_q0", "q0"},
+		{"invalid_q11", "q11"},
+		{"invalid_total", "total"}, // totalは許可されない
+		{"invalid_foo", "foo"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest("GET", "/api/bayes?condition="+tc.condition+"&value=1&threshold=8", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rr := httptest.NewRecorder()
+			handler := http.HandlerFunc(getBayesTheorem)
+			handler.ServeHTTP(rr, req)
+
+			// エラーステータスコードの確認
+			if status := rr.Code; status != http.StatusBadRequest {
+				t.Errorf("handler returned wrong status code: got %v want %v",
+					status, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
+// TestBayesTheoremWithDifferentThresholds - 異なる閾値でのテスト
+func TestBayesTheoremWithDifferentThresholds(t *testing.T) {
+	setupTestData()
+	// Student1: Total=10, Q1=1
+	// Student2: Total=7, Q1=1
+	// Student3: Total=0, Q1=0
+
+	testCases := []struct {
+		threshold int
+		expected  float64
+	}{
+		{5, 1.0},   // 両方とも5以上 → 2/2 = 1.0
+		{8, 0.5},   // Student1のみ8以上 → 1/2 = 0.5
+		{11, 0.0},  // どちらも11以上ではない → 0/2 = 0.0
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("threshold_%d", tc.threshold), func(t *testing.T) {
+			req, err := http.NewRequest("GET", fmt.Sprintf("/api/bayes?condition=q1&value=1&threshold=%d", tc.threshold), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rr := httptest.NewRecorder()
+			handler := http.HandlerFunc(getBayesTheorem)
+			handler.ServeHTTP(rr, req)
+
+			if status := rr.Code; status != http.StatusOK {
+				t.Errorf("handler returned wrong status code: got %v want %v",
+					status, http.StatusOK)
+			}
+
+			var result map[string]interface{}
+			if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+
+			posteriorProb := result["posterior_probability"].(float64)
+			if posteriorProb < tc.expected-0.01 || posteriorProb > tc.expected+0.01 {
+				t.Errorf("expected %.2f, got %.2f", tc.expected, posteriorProb)
+			}
+		})
+	}
+}
+
+// TestBayesTheoremEmptyData - データが空の場合のテスト
+func TestBayesTheoremEmptyData(t *testing.T) {
+	grades = []Grade{} // 空のデータ
+
+	req, err := http.NewRequest("GET", "/api/bayes?condition=q1&value=1&threshold=8", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getBayesTheorem)
+	handler.ServeHTTP(rr, req)
+
+	// エラーステータスコードの確認
+	if status := rr.Code; status != http.StatusInternalServerError {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusInternalServerError)
+	}
+}
+
+// BenchmarkBayesTheorem - ベイズの定理のベンチマークテスト
+func BenchmarkBayesTheorem(b *testing.B) {
+	setupTestData()
+	req, _ := http.NewRequest("GET", "/api/bayes?condition=q1&value=1&threshold=8", nil)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(getBayesTheorem)
 		handler.ServeHTTP(rr, req)
 	}
 }

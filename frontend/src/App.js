@@ -24,6 +24,13 @@ function App() {
   const [correlationMatrix, setCorrelationMatrix] = useState(null);
   const [corrMatrixLoading, setCorrMatrixLoading] = useState(false);
 
+  // Bayes Theorem State
+  const [bayesCondition, setBayesCondition] = useState('q1');
+  const [bayesValue, setBayesValue] = useState('1');
+  const [bayesThreshold, setBayesThreshold] = useState('8');
+  const [bayesResult, setBayesResult] = useState(null);
+  const [bayesLoading, setBayesLoading] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -58,6 +65,20 @@ function App() {
     } catch (err) {
       console.error('Error fetching conditional probability:', err);
       setCondProbLoading(false);
+    }
+  };
+
+  const fetchBayesTheorem = async () => {
+    try {
+      setBayesLoading(true);
+      const response = await axios.get(
+        `${API_BASE_URL}/bayes?condition=${bayesCondition}&value=${bayesValue}&threshold=${bayesThreshold}`
+      );
+      setBayesResult(response.data);
+      setBayesLoading(false);
+    } catch (err) {
+      console.error('Error fetching Bayes theorem:', err);
+      setBayesLoading(false);
     }
   };
 
@@ -304,6 +325,106 @@ function App() {
                   📊 <strong>解釈:</strong> Q{conditionalProb.given_question}を正解した学生{conditionalProb.given_correct_count}人のうち、
                   {conditionalProb.both_correct_count}人がQ{conditionalProb.target_question}も正解しています
                   （{(conditionalProb.probability * 100).toFixed(2)}%）
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Bayes Theorem Calculator */}
+        <section className="card">
+          <h2>ベイズの定理による確率更新</h2>
+          <p className="section-description">
+            P(Total≥threshold | Q<sub>condition</sub>=value) を計算します。
+            「特定の問題の解答状況を条件として、合計点が閾値以上になる確率」を推定します。
+          </p>
+
+          <div className="bayes-controls">
+            <div className="control-group">
+              <label htmlFor="bayes-condition">
+                条件となる問題:
+              </label>
+              <select
+                id="bayes-condition"
+                value={bayesCondition}
+                onChange={(e) => setBayesCondition(e.target.value)}
+                className="question-select"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(q => (
+                  <option key={q} value={`q${q}`}>Q{q}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="control-group">
+              <label htmlFor="bayes-value">
+                問題の値:
+              </label>
+              <select
+                id="bayes-value"
+                value={bayesValue}
+                onChange={(e) => setBayesValue(e.target.value)}
+                className="question-select"
+              >
+                <option value="0">不正解 (0)</option>
+                <option value="1">正解 (1)</option>
+              </select>
+            </div>
+
+            <div className="control-group">
+              <label htmlFor="bayes-threshold">
+                合計点の閾値:
+              </label>
+              <input
+                type="number"
+                id="bayes-threshold"
+                value={bayesThreshold}
+                onChange={(e) => setBayesThreshold(e.target.value)}
+                min="0"
+                max="10"
+                className="threshold-input"
+              />
+            </div>
+
+            <button
+              onClick={fetchBayesTheorem}
+              disabled={bayesLoading}
+              className="calculate-button"
+            >
+              {bayesLoading ? '計算中...' : '計算する'}
+            </button>
+          </div>
+
+          {bayesResult && (
+            <div className="bayes-result">
+              <h3>計算結果</h3>
+              <div className="result-grid">
+                <div className="result-item">
+                  <span className="result-label">事後確率 P(Total≥{bayesResult.threshold} | {bayesResult.condition}={bayesResult.condition_value})</span>
+                  <span className="result-value probability">
+                    {(bayesResult.posterior_probability * 100).toFixed(2)}%
+                  </span>
+                </div>
+                <div className="result-item">
+                  <span className="result-label">事前確率 P(Total≥{bayesResult.threshold})</span>
+                  <span className="result-value">{(bayesResult.prior_probability * 100).toFixed(2)}%</span>
+                </div>
+                <div className="result-item">
+                  <span className="result-label">尤度 P({bayesResult.condition}={bayesResult.condition_value} | Total≥{bayesResult.threshold})</span>
+                  <span className="result-value">{(bayesResult.likelihood_probability * 100).toFixed(2)}%</span>
+                </div>
+              </div>
+              <div className="result-details">
+                <p><strong>条件を満たす学生数:</strong> {bayesResult.condition_met_count}人</p>
+                <p><strong>両方の条件を満たす学生数:</strong> {bayesResult.both_conditions_met_count}人</p>
+              </div>
+              <div className="analysis-note">
+                <p>
+                  📊 <strong>解釈:</strong> {bayesResult.condition}={bayesResult.condition_value}の学生{bayesResult.condition_met_count}人のうち、
+                  合計点が{bayesResult.threshold}点以上の学生は{bayesResult.both_conditions_met_count}人です
+                  （{(bayesResult.posterior_probability * 100).toFixed(2)}%）。
+                  これは事前確率{(bayesResult.prior_probability * 100).toFixed(2)}%から
+                  {bayesResult.posterior_probability > bayesResult.prior_probability ? '増加' : '減少'}しています。
                 </p>
               </div>
             </div>

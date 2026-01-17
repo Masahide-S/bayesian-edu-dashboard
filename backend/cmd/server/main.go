@@ -53,6 +53,18 @@ type CorrelationMatrixResponse struct {
 	QuestionLabels  []string    `json:"question_labels"`
 }
 
+// BayesTheoremResponse represents the Bayes theorem calculation result
+type BayesTheoremResponse struct {
+	Condition               string  `json:"condition"`
+	ConditionValue          int     `json:"condition_value"`
+	Threshold               int     `json:"threshold"`
+	PosteriorProbability    float64 `json:"posterior_probability"`
+	ConditionMetCount       int     `json:"condition_met_count"`
+	BothConditionsMetCount  int     `json:"both_conditions_met_count"`
+	PriorProbability        float64 `json:"prior_probability"`
+	LikelihoodProbability   float64 `json:"likelihood_probability"`
+}
+
 var grades []Grade
 
 // getQuestionValue returns the value for a specific question number (1-10) from a grade
@@ -283,6 +295,112 @@ func getStatistics(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
+// Handler: Get Bayes theorem result
+// Calculates P(Total≥threshold | Q_condition=value)
+func getBayesTheorem(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Parse query parameters
+	condition := r.URL.Query().Get("condition")
+	valueStr := r.URL.Query().Get("value")
+	thresholdStr := r.URL.Query().Get("threshold")
+
+	// Validate parameters exist
+	if condition == "" {
+		http.Error(w, "Missing 'condition' parameter", http.StatusBadRequest)
+		return
+	}
+	if valueStr == "" {
+		http.Error(w, "Missing 'value' parameter", http.StatusBadRequest)
+		return
+	}
+	if thresholdStr == "" {
+		http.Error(w, "Missing 'threshold' parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Convert to integers
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		http.Error(w, "Invalid 'value' parameter", http.StatusBadRequest)
+		return
+	}
+	threshold, err := strconv.Atoi(thresholdStr)
+	if err != nil {
+		http.Error(w, "Invalid 'threshold' parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Validate condition (must be q1-q10)
+	var questionNum int
+	if len(condition) >= 2 && condition[0] == 'q' {
+		questionNum, err = strconv.Atoi(condition[1:])
+		if err != nil || questionNum < 1 || questionNum > 10 {
+			http.Error(w, "Invalid condition (must be q1-q10)", http.StatusBadRequest)
+			return
+		}
+	} else {
+		http.Error(w, "Invalid condition (must be q1-q10)", http.StatusBadRequest)
+		return
+	}
+
+	if len(grades) == 0 {
+		http.Error(w, "No data available", http.StatusInternalServerError)
+		return
+	}
+
+	// Calculate Bayes theorem: P(Total≥threshold | Q_condition=value)
+	// This is actually a conditional probability
+	conditionMetCount := 0
+	bothConditionsMetCount := 0
+
+	for _, grade := range grades {
+		questionValue := getQuestionValue(grade, questionNum)
+
+		if questionValue == value {
+			conditionMetCount++
+			if grade.Total >= threshold {
+				bothConditionsMetCount++
+			}
+		}
+	}
+
+	// Calculate posterior probability
+	posteriorProbability := 0.0
+	if conditionMetCount > 0 {
+		posteriorProbability = float64(bothConditionsMetCount) / float64(conditionMetCount)
+	}
+
+	// Calculate prior and likelihood for reference
+	// Prior: P(Total≥threshold)
+	thresholdMetCount := 0
+	for _, grade := range grades {
+		if grade.Total >= threshold {
+			thresholdMetCount++
+		}
+	}
+	priorProbability := float64(thresholdMetCount) / float64(len(grades))
+
+	// Likelihood: P(Q_condition=value | Total≥threshold)
+	likelihoodProbability := 0.0
+	if thresholdMetCount > 0 {
+		likelihoodProbability = float64(bothConditionsMetCount) / float64(thresholdMetCount)
+	}
+
+	response := BayesTheoremResponse{
+		Condition:              condition,
+		ConditionValue:         value,
+		Threshold:              threshold,
+		PosteriorProbability:   posteriorProbability,
+		ConditionMetCount:      conditionMetCount,
+		BothConditionsMetCount: bothConditionsMetCount,
+		PriorProbability:       priorProbability,
+		LikelihoodProbability:  likelihoodProbability,
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
 // Handler: Get correlation matrix
 // Calculates correlation matrix for all question pairs
 func getCorrelationMatrix(w http.ResponseWriter, r *http.Request) {
@@ -420,6 +538,7 @@ func main() {
 	router.HandleFunc("/api/statistics", getStatistics).Methods("GET")
 	router.HandleFunc("/api/conditional-probability", getConditionalProbability).Methods("GET")
 	router.HandleFunc("/api/correlation-matrix", getCorrelationMatrix).Methods("GET")
+	router.HandleFunc("/api/bayes", getBayesTheorem).Methods("GET")
 
 	// CORS middleware
 	c := cors.New(cors.Options{

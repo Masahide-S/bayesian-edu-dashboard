@@ -410,3 +410,163 @@ func BenchmarkConditionalProbability(b *testing.B) {
 		handler.ServeHTTP(rr, req)
 	}
 }
+
+// TestCorrelationMatrix - 相関マトリックス計算の正常系テスト
+func TestCorrelationMatrix(t *testing.T) {
+	setupTestData()
+
+	req, err := http.NewRequest("GET", "/api/correlation-matrix", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getCorrelationMatrix)
+	handler.ServeHTTP(rr, req)
+
+	// ステータスコードの確認
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+
+	// JSONのデコード
+	var result map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Errorf("failed to decode response body: %v", err)
+	}
+
+	// マトリックスの存在確認
+	matrix, ok := result["matrix"].([]interface{})
+	if !ok {
+		t.Fatal("matrix field is missing or not an array")
+	}
+
+	// マトリックスのサイズ確認（10x10）
+	if len(matrix) != 10 {
+		t.Errorf("expected 10 rows, got %d", len(matrix))
+	}
+
+	// 各行が10列を持つことを確認
+	for i, row := range matrix {
+		rowArray, ok := row.([]interface{})
+		if !ok {
+			t.Errorf("row %d is not an array", i)
+			continue
+		}
+		if len(rowArray) != 10 {
+			t.Errorf("row %d: expected 10 columns, got %d", i, len(rowArray))
+		}
+	}
+
+	// 対角線要素が1.0であることを確認（自分自身との相関は1）
+	for i := 0; i < 10; i++ {
+		row := matrix[i].([]interface{})
+		diagonal := row[i].(float64)
+		if diagonal < 0.99 || diagonal > 1.01 {
+			t.Errorf("diagonal element [%d][%d] should be 1.0, got %.2f", i, i, diagonal)
+		}
+	}
+}
+
+// TestCorrelationMatrixSymmetry - 相関マトリックスの対称性テスト
+func TestCorrelationMatrixSymmetry(t *testing.T) {
+	setupTestData()
+
+	req, err := http.NewRequest("GET", "/api/correlation-matrix", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getCorrelationMatrix)
+	handler.ServeHTTP(rr, req)
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+
+	matrix := result["matrix"].([]interface{})
+
+	// 相関マトリックスは対称行列であることを確認
+	for i := 0; i < 10; i++ {
+		for j := 0; j < 10; j++ {
+			row_i := matrix[i].([]interface{})
+			row_j := matrix[j].([]interface{})
+			val_ij := row_i[j].(float64)
+			val_ji := row_j[i].(float64)
+
+			// 対称性の確認（誤差0.01以内）
+			if val_ij < val_ji-0.01 || val_ij > val_ji+0.01 {
+				t.Errorf("matrix not symmetric: [%d][%d]=%.4f but [%d][%d]=%.4f",
+					i, j, val_ij, j, i, val_ji)
+			}
+		}
+	}
+}
+
+// TestCorrelationMatrixWithEmptyData - データが空の場合のテスト
+func TestCorrelationMatrixWithEmptyData(t *testing.T) {
+	grades = []Grade{} // 空のデータ
+
+	req, err := http.NewRequest("GET", "/api/correlation-matrix", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getCorrelationMatrix)
+	handler.ServeHTTP(rr, req)
+
+	// エラーステータスコードの確認
+	if status := rr.Code; status != http.StatusInternalServerError {
+		t.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusInternalServerError)
+	}
+}
+
+// TestCorrelationMatrixValueRange - 相関係数の範囲テスト（-1〜1）
+func TestCorrelationMatrixValueRange(t *testing.T) {
+	setupTestData()
+
+	req, err := http.NewRequest("GET", "/api/correlation-matrix", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(getCorrelationMatrix)
+	handler.ServeHTTP(rr, req)
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+
+	matrix := result["matrix"].([]interface{})
+
+	// すべての相関係数が-1〜1の範囲内であることを確認
+	for i := 0; i < 10; i++ {
+		row := matrix[i].([]interface{})
+		for j := 0; j < 10; j++ {
+			val := row[j].(float64)
+			if val < -1.0 || val > 1.0 {
+				t.Errorf("correlation value [%d][%d]=%.4f is out of range [-1, 1]", i, j, val)
+			}
+		}
+	}
+}
+
+// BenchmarkCorrelationMatrix - 相関マトリックス計算のベンチマークテスト
+func BenchmarkCorrelationMatrix(b *testing.B) {
+	setupTestData()
+	req, _ := http.NewRequest("GET", "/api/correlation-matrix", nil)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(getCorrelationMatrix)
+		handler.ServeHTTP(rr, req)
+	}
+}

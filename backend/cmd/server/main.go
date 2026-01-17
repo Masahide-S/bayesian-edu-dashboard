@@ -47,6 +47,12 @@ type ConditionalProbabilityResponse struct {
 	GivenCorrectCount  int     `json:"given_correct_count"`
 }
 
+// CorrelationMatrixResponse represents the correlation matrix of all questions
+type CorrelationMatrixResponse struct {
+	Matrix          [][]float64 `json:"matrix"`
+	QuestionLabels  []string    `json:"question_labels"`
+}
+
 var grades []Grade
 
 // getQuestionValue returns the value for a specific question number (1-10) from a grade
@@ -75,6 +81,55 @@ func getQuestionValue(g Grade, questionNum int) int {
 	default:
 		return 0
 	}
+}
+
+// calculatePearsonCorrelation calculates the Pearson correlation coefficient between two questions
+func calculatePearsonCorrelation(q1, q2 int) float64 {
+	if len(grades) == 0 {
+		return 0.0
+	}
+
+	// Collect values for both questions
+	var values1, values2 []float64
+	for _, grade := range grades {
+		values1 = append(values1, float64(getQuestionValue(grade, q1)))
+		values2 = append(values2, float64(getQuestionValue(grade, q2)))
+	}
+
+	// Calculate means
+	var sum1, sum2 float64
+	n := float64(len(grades))
+	for i := 0; i < len(grades); i++ {
+		sum1 += values1[i]
+		sum2 += values2[i]
+	}
+	mean1 := sum1 / n
+	mean2 := sum2 / n
+
+	// Calculate Pearson correlation
+	var numerator, denom1, denom2 float64
+	for i := 0; i < len(grades); i++ {
+		diff1 := values1[i] - mean1
+		diff2 := values2[i] - mean2
+		numerator += diff1 * diff2
+		denom1 += diff1 * diff1
+		denom2 += diff2 * diff2
+	}
+
+	// Handle edge case: no variance
+	if denom1 == 0 || denom2 == 0 {
+		return 1.0 // Perfect correlation when there's no variance
+	}
+
+	// Calculate sqrt(denom1 * denom2) using Newton's method
+	denomProduct := denom1 * denom2
+	sqrtDenom := denomProduct
+	for i := 0; i < 20; i++ { // Newton's method iterations for sqrt
+		sqrtDenom = (sqrtDenom + denomProduct/sqrtDenom) / 2
+	}
+
+	correlation := numerator / sqrtDenom
+	return correlation
 }
 
 // Load grades from CSV file
@@ -228,6 +283,46 @@ func getStatistics(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
+// Handler: Get correlation matrix
+// Calculates correlation matrix for all question pairs
+func getCorrelationMatrix(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if len(grades) == 0 {
+		http.Error(w, "No data available", http.StatusInternalServerError)
+		return
+	}
+
+	// Initialize 10x10 correlation matrix
+	matrix := make([][]float64, 10)
+	for i := 0; i < 10; i++ {
+		matrix[i] = make([]float64, 10)
+	}
+
+	// Calculate correlation for each question pair
+	for i := 1; i <= 10; i++ {
+		for j := 1; j <= 10; j++ {
+			if i == j {
+				// Self-correlation is always 1.0
+				matrix[i-1][j-1] = 1.0
+			} else {
+				// Calculate Pearson correlation
+				matrix[i-1][j-1] = calculatePearsonCorrelation(i, j)
+			}
+		}
+	}
+
+	// Create question labels
+	questionLabels := []string{"Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q10"}
+
+	response := CorrelationMatrixResponse{
+		Matrix:         matrix,
+		QuestionLabels: questionLabels,
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
 // Handler: Get conditional probability
 // Calculates P(Q_target=1 | Q_given=1)
 func getConditionalProbability(w http.ResponseWriter, r *http.Request) {
@@ -324,6 +419,7 @@ func main() {
 	router.HandleFunc("/api/grades", getGrades).Methods("GET")
 	router.HandleFunc("/api/statistics", getStatistics).Methods("GET")
 	router.HandleFunc("/api/conditional-probability", getConditionalProbability).Methods("GET")
+	router.HandleFunc("/api/correlation-matrix", getCorrelationMatrix).Methods("GET")
 
 	// CORS middleware
 	c := cors.New(cors.Options{

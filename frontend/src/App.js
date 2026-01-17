@@ -20,6 +20,10 @@ function App() {
   const [conditionalProb, setConditionalProb] = useState(null);
   const [condProbLoading, setCondProbLoading] = useState(false);
 
+  // Correlation Matrix State
+  const [correlationMatrix, setCorrelationMatrix] = useState(null);
+  const [corrMatrixLoading, setCorrMatrixLoading] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -27,13 +31,15 @@ function App() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [gradesRes, statsRes] = await Promise.all([
+      const [gradesRes, statsRes, corrRes] = await Promise.all([
         axios.get(`${API_BASE_URL}/grades`),
-        axios.get(`${API_BASE_URL}/statistics`)
+        axios.get(`${API_BASE_URL}/statistics`),
+        axios.get(`${API_BASE_URL}/correlation-matrix`)
       ]);
 
       setGrades(gradesRes.data);
       setStatistics(statsRes.data);
+      setCorrelationMatrix(corrRes.data);
       setLoading(false);
     } catch (err) {
       setError(err.message);
@@ -164,6 +170,65 @@ function App() {
             <p>💡 <strong>分析:</strong> 正答率が高い問題ほど易しく、低い問題ほど難しいと判断できます</p>
           </div>
         </section>
+
+        {/* Correlation Matrix Heatmap */}
+        {correlationMatrix && (
+          <section className="card">
+            <h2>問題間相関マトリックス</h2>
+            <p className="section-description">
+              各問題ペアのピアソン相関係数を表示します。
+              相関が強いほど色が濃くなります（正の相関：青、負の相関：赤）。
+            </p>
+
+            <div className="heatmap-container">
+              <table className="correlation-heatmap">
+                <thead>
+                  <tr>
+                    <th></th>
+                    {correlationMatrix.question_labels.map((label) => (
+                      <th key={label}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {correlationMatrix.matrix.map((row, i) => (
+                    <tr key={i}>
+                      <th>{correlationMatrix.question_labels[i]}</th>
+                      {row.map((value, j) => {
+                        // Color intensity based on correlation value
+                        const intensity = Math.abs(value);
+                        const isPositive = value >= 0;
+                        const color = isPositive
+                          ? `rgba(66, 126, 234, ${intensity})`
+                          : `rgba(239, 83, 80, ${intensity})`;
+
+                        return (
+                          <td
+                            key={j}
+                            className="heatmap-cell"
+                            style={{ backgroundColor: color }}
+                            title={`${correlationMatrix.question_labels[i]} × ${correlationMatrix.question_labels[j]}: ${value.toFixed(3)}`}
+                          >
+                            {value.toFixed(2)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="analysis-note">
+              <p>
+                📊 <strong>解釈:</strong>
+                値が1に近いほど正の相関が強く（一方ができるともう一方もできる）、
+                -1に近いほど負の相関が強く（一方ができるともう一方ができない）、
+                0に近いほど相関がありません。
+              </p>
+            </div>
+          </section>
+        )}
 
         {/* Conditional Probability Calculator */}
         <section className="card">
